@@ -52,6 +52,8 @@ static bool load_env() {
     return true;
 }
 
+static MYSQL* open_conn();
+
 // db.conf padho: har line "key=value"; # se shuru hone wali line comment hai
 static bool load_conf() {
     if (load_env()) return true;
@@ -95,24 +97,8 @@ bool init_db() {
     }
 
     for (int i = 0; i < DB_POOL; i++) {
-        MYSQL* m = mysql_init(nullptr);
+        MYSQL* m = open_conn();
         if (m == nullptr) {
-            log_tag("DB", "mysql_init failed (out of memory)");
-            close_db();
-            return false;
-        }
-        // CLIENT_FOUND_ROWS (connect ke aakhri argument me): UPDATE ka "affected rows" = WHERE se match hui rows.
-        // Iske bina MySQL sirf wo rows ginta hai jinki value sach me badli; same value likhne par 0 aata,
-        // aur 0 se pata nahi chalta ki session mila hi nahi ya bas value wahi thi
-        unsigned int timeout = 5;                            // server band ho to 5 sec me haar maano
-        mysql_options(m, MYSQL_OPT_CONNECT_TIMEOUT, &timeout);
-        mysql_options(m, MYSQL_SET_CHARSET_NAME, "utf8mb4");
-
-        if (mysql_real_connect(m, db_host.c_str(), db_user.c_str(), db_pass.c_str(),
-                               db_name.c_str(), db_port, nullptr, CLIENT_FOUND_ROWS) == nullptr) {
-            log_tag("DB", "cannot connect to MySQL at " + db_host + " as '" + db_user +
-                          "' (database " + db_name + "): " + mysql_error(m));
-            mysql_close(m);
             close_db();
             return false;
         }
@@ -123,6 +109,30 @@ bool init_db() {
     free_sem.release(DB_POOL);      // ab saare connections lene ke liye taiyaar hain
     log_tag("DB", "pool ready: " + to_string(DB_POOL) + " connections to " + db_name + " on " + db_host);
     return true;
+}
+
+// ek naya MySQL connection kholo; fail ho to nullptr (wajah log me)
+static MYSQL* open_conn() {
+    MYSQL* m = mysql_init(nullptr);
+    if (m == nullptr) {
+        log_tag("DB", "mysql_init failed (out of memory)");
+        return nullptr;
+    }
+    // CLIENT_FOUND_ROWS (connect ke aakhri argument me): UPDATE ka "affected rows" = WHERE se match hui rows.
+    // Iske bina MySQL sirf wo rows ginta hai jinki value sach me badli; same value likhne par 0 aata,
+    // aur 0 se pata nahi chalta ki session mila hi nahi ya bas value wahi thi
+    unsigned int timeout = 5;                            // server band ho to 5 sec me haar maano
+    mysql_options(m, MYSQL_OPT_CONNECT_TIMEOUT, &timeout);
+    mysql_options(m, MYSQL_SET_CHARSET_NAME, "utf8mb4");
+
+    if (mysql_real_connect(m, db_host.c_str(), db_user.c_str(), db_pass.c_str(),
+                           db_name.c_str(), db_port, nullptr, CLIENT_FOUND_ROWS) == nullptr) {
+        log_tag("DB", "cannot connect to MySQL at " + db_host + " as '" + db_user +
+                      "' (database " + db_name + "): " + mysql_error(m));
+        mysql_close(m);
+        return nullptr;
+    }
+    return m;
 }
 
 void close_db() {
@@ -149,6 +159,18 @@ MYSQL* get_conn(int& id) {
     id = free_ids[--free_count];
     MYSQL* m = pool[id - 1];
     pool_lock.unlock();
+
+    // hosted MySQL (Aiven) idle connections band kar deta hai. Ping fail = server ne connection chhod diya: naya kholo.
+    // Lock ke bahar: yeh slot (id) ab sirf isi thread ka hai, koi aur pool[id - 1] nahi chhuega
+    if (mysql_ping(m) != 0) {
+        log_tag("DB", "conn " + to_string(id) + " lost (" + mysql_error(m) + "), reconnecting");
+        MYSQL* fresh = open_conn();
+        if (fresh != nullptr) {
+            mysql_close(m);
+            m = fresh;
+            pool[id - 1] = m;
+        }
+    }
     log_verbose("DB", "conn " + to_string(id) + " taken by " + who());
     return m;
 }
