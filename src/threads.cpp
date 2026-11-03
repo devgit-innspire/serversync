@@ -1,6 +1,8 @@
 // threads.cpp - client queue, worker threads, logger thread, metrics, mutex + semaphores, thread-safe log
 // Owner: Shoyam20
+#ifdef _WIN32
 #include <winsock2.h>
+#endif
 #include <algorithm>
 #include <cmath>
 #include <iostream>
