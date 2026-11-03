@@ -1,47 +1,22 @@
-# Render Blueprint: Dashboard > New > Blueprint > pick this repo. Creates MySQL (private) + the web server.
+# Render Blueprint (free plan): Dashboard > New > Blueprint > pick this repo. Creates only the web server.
+# The database is an external free MySQL 8 (Aiven); Render asks for the DB_* values when the Blueprint is created.
 services:
-  - type: pserv
-    name: serversync-mysql
-    runtime: docker
-    dockerfilePath: ./deploy/mysql/Dockerfile
-    dockerContext: .
-    plan: starter            # private services and disks need a paid plan
-    disk:
-      name: mysql-data
-      mountPath: /var/lib/mysql
-      sizeGB: 1
-    envVars:
-      - key: MYSQL_DATABASE
-        value: ecommerce_db
-      - key: MYSQL_USER
-        value: serversync
-      - key: MYSQL_PASSWORD
-        generateValue: true
-      - key: MYSQL_ROOT_PASSWORD
-        generateValue: true
-
   - type: web
     name: serversync
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    plan: starter
+    plan: free
     envVars:
       - key: PORT
         value: "8080"
       - key: DB_HOST
-        fromService:
-          name: serversync-mysql
-          type: pserv
-          property: host
+        sync: false
       - key: DB_PORT
-        value: "3306"
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
       - key: DB_NAME
         value: ecommerce_db
-      - key: DB_USER
-        value: serversync
-      - key: DB_PASSWORD
-        fromService:
-          name: serversync-mysql
-          type: pserv
-          envVarKey: MYSQL_PASSWORD
