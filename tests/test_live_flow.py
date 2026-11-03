@@ -1,0 +1,121 @@
+# Full shopping flow against a running server (local or deployed), 4 users at the same time.
+# Each user: signup -> login -> add address -> add to cart -> checkout -> order page -> orders list -> logout.
+# All 4 buy the SAME product in parallel: stock must drop by exactly 4 (row locks in the checkout transaction).
+# Usage: py tests/test_live_flow.py https://serversync-wo8b.onrender.com [run-tag]
+import http.cookiejar, re, sys, threading, time, urllib.error, urllib.parse, urllib.request
+
+BASE = sys.argv[1].rstrip("/")
+TAG = sys.argv[2] if len(sys.argv) > 2 else str(int(time.time()))
+PASSWORD = "Kq7#Tiger$Moon"
+USERS = ["Shoyam Bishnoi", "Sneha Negi", "Aaradhna Jaiswal", "Ashutosh"]
+SHARED = 9           # TWS Wireless Earbuds: everybody buys one
+EXTRA = [2, 30, 41, 51]   # plus one different product each
+
+results, lock = [], threading.Lock()
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+
+
+class Client:
+    def __init__(self):
+        self.jar = http.cookiejar.CookieJar()
+        self.op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar), NoRedirect)
+
+    def req(self, method, path, form=None):
+        data = urllib.parse.urlencode(form).encode() if form is not None else None
+        r = urllib.request.Request(BASE + path, data=data, method=method)
+        try:
+            resp = self.op.open(r, timeout=90)
+        except urllib.error.HTTPError as e:
+            resp = e
+        return resp.status, resp.headers.get("Location", ""), resp.read().decode("utf-8", "replace")
+
+
+def check(who, step, ok, info=""):
+    with lock:
+        results.append((who, step, ok))
+        print(f"[{'PASS' if ok else 'FAIL'}] {who:17} {step}" + (f"  ({info})" if info and not ok else ""))
+    return ok
+
+
+def flow(i, name, barrier, out):
+    c = Client()
+    email = f"{name.split()[0].lower()}.{TAG}@example.com"
+    s, loc, _ = c.req("POST", "/signup", {"name": name, "email": email, "password": PASSWORD, "confirm_password": PASSWORD})
+    check(name, "signup", s == 302 and "/login" in loc, f"{s} {loc}")
+    s, loc, _ = c.req("POST", "/login", {"email": email, "password": PASSWORD})
+    check(name, "login", s == 302 and any(k.name == "session_id" for k in c.jar), f"{s} {loc}")
+    s, _, body = c.req("GET", "/")
+    check(name, "home shows logged-in user", s == 200 and name.split()[0] in body, str(s))
+
+    s, _, body = c.req("GET", "/addresses/new")
+    states = re.findall(r'<option value="(\d+)"[^>]*>([^<]+)</option>', body)
+    sid = next((v for v, n in states if n.strip() == "Rajasthan"), states[0][0] if states else "1")
+    s, loc, _ = c.req("POST", "/addresses/new", {
+        "first_name": name.split()[0], "last_name": (name.split() + ["Kumar"])[1], "phone": f"98765432{10 + i}",
+        "address_type": "HOME", "line1": f"{i + 1} College Road", "line2": "", "landmark": "Near Library",
+        "city": "Jaipur", "state_id": sid, "pincode": "302017"})
+    check(name, "add address", s == 302, f"{s} {loc}")
+
+    for pid in (SHARED, EXTRA[i]):
+        s, loc, _ = c.req("POST", "/cart/add", {"product_id": pid, "return": "/cart"})
+        check(name, f"add product {pid} to cart", s == 302, f"{s} {loc}")
+    s, _, body = c.req("GET", "/cart")
+    check(name, "cart has 2 items", s == 200 and body.count('name="product_id"') >= 2, str(s))
+
+    s, _, body = c.req("GET", "/checkout")
+    aid = re.search(r'name="address_id" value="(\d+)"', body)
+    check(name, "checkout page with address", s == 200 and aid is not None, str(s))
+
+    barrier.wait()      # sab ek saath "Place order" dabate hain
+    s, loc, _ = c.req("POST", "/checkout", {"address_id": aid.group(1) if aid else ""})
+    m = re.search(r"/order\?id=(\d+)", loc)
+    check(name, "place order (parallel)", s == 302 and m is not None, f"{s} {loc}")
+    oid = m.group(1) if m else "0"
+    out[name] = (c, oid)
+
+    s, _, body = c.req("GET", f"/order?id={oid}")
+    check(name, f"order #{oid} page", s == 200 and "COD" in body, str(s))
+    s, _, body = c.req("GET", "/orders")
+    check(name, "order in My Orders", s == 200 and f"id={oid}" in body, str(s))
+    s, _, body = c.req("GET", "/cart")
+    check(name, "cart empty after checkout", s == 200 and 'name="product_id"' not in body, str(s))
+
+
+def main():
+    print(f"Target: {BASE}   run tag: {TAG}\n")
+    barrier = threading.Barrier(len(USERS))
+    out = {}
+    ts = [threading.Thread(target=flow, args=(i, n, barrier, out)) for i, n in enumerate(USERS)]
+    for t in ts: t.start()
+    for t in ts: t.join()
+
+    # other users can't see someone else's order
+    names = list(out)
+    if len(names) >= 2:
+        a, b = out[names[0]], out[names[1]]
+        s, _, _ = a[0].req("GET", f"/order?id={b[1]}")
+        check(names[0], f"cannot open {names[1]}'s order", s in (403, 404), str(s))
+
+    # Ashutosh cancels
+    if "Ashutosh" in out:
+        c, oid = out["Ashutosh"]
+        s, loc, _ = c.req("POST", "/order/cancel", {"order_id": oid})
+        s2, _, body = c.req("GET", f"/order?id={oid}")
+        check("Ashutosh", f"cancel order #{oid}", s == 302 and "Cancelled" in body, f"{s} {loc}")
+
+    for n, (c, _) in out.items():
+        s, loc, _ = c.req("POST", "/logout", {})
+        s2, loc2, _ = c.req("GET", "/orders")
+        check(n, "logout (orders page needs login again)", s == 302 and s2 == 302 and "/login" in loc2, f"{s} {s2} {loc2}")
+
+    fails = [r for r in results if not r[2]]
+    print(f"\n{len(results) - len(fails)}/{len(results)} checks passed")
+    sys.exit(1 if fails else 0)
+
+
+if __name__ == "__main__":
+    main()
