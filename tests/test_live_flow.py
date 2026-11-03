@@ -36,12 +36,18 @@ class Client:
 
     def req(self, method, path, form=None):
         data = urllib.parse.urlencode(form).encode() if form is not None else None
-        r = urllib.request.Request(BASE + path, data=data, method=method)
-        try:
-            resp = self.op.open(r, timeout=90)
-        except urllib.error.HTTPError as e:
-            resp = e
-        return resp.status, resp.headers.get("Location", ""), resp.read().decode("utf-8", "replace")
+        for attempt in range(4):        # network kabhi kabhi atak jata hai: wahi request dobara (server ki galti nahi)
+            r = urllib.request.Request(BASE + path, data=data, method=method)
+            try:
+                resp = self.op.open(r, timeout=60)
+            except urllib.error.HTTPError as e:
+                resp = e
+            except (urllib.error.URLError, OSError) as e:
+                if attempt == 3:
+                    return 0, "", f"network error: {e}"
+                time.sleep(3)
+                continue
+            return resp.status, resp.headers.get("Location", ""), resp.read().decode("utf-8", "replace")
 
 
 def check(who, step, ok, info=""):
@@ -96,7 +102,10 @@ def flow(i, name, barrier, out):
         s, _, body = c.req("GET", "/cart")
         check(name, "cart still full after decline", s == 200 and body.count('name="product_id"') >= 2, str(s))
 
-    barrier.wait()      # sab ek saath "Place order" dabate hain
+    try:
+        barrier.wait(timeout=300)       # sab ek saath "Place order" dabate hain (koi thread mar gaya to hamesha ruko nahi)
+    except threading.BrokenBarrierError:
+        pass
     s, loc, _ = c.req("POST", "/checkout", dict(pay, address_id=addr))
     m = re.search(r"/order\?id=(\d+)", loc)
     check(name, "place order (parallel)", s == 302 and m is not None, f"{s} {loc}")
@@ -116,7 +125,13 @@ def main():
     print(f"Target: {BASE}   run tag: {TAG}\n")
     barrier = threading.Barrier(len(USERS))
     out = {}
-    ts = [threading.Thread(target=flow, args=(i, n, barrier, out)) for i, n in enumerate(USERS)]
+    def safe_flow(i, n):
+        try:
+            flow(i, n, barrier, out)
+        except Exception as e:          # ek user ki galti baaki ko na roke
+            check(n, "flow crashed", False, repr(e))
+            barrier.abort()
+    ts = [threading.Thread(target=safe_flow, args=(i, n)) for i, n in enumerate(USERS)]
     for t in ts: t.start()
     for t in ts: t.join()
 
