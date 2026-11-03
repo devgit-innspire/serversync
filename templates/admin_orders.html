@@ -1,0 +1,15 @@
+<div class="head-row"><h1>Orders</h1></div>
+<form class="card filters" method="get" action="/admin/orders">
+  <select name="status" aria-label="Status">{{{options}}}</select>
+  <input type="search" name="q" value="{{q}}" placeholder="Order number or customer email" maxlength="100" aria-label="Order number or customer email">
+  <button class="btn btn-primary">Filter</button>
+  <a class="btn" href="/admin/orders">Reset</a>
+</form>
+<div class="card">
+  <p class="muted">{{count}}</p>
+  <div class="table-wrap"><table>
+    <tr><th>#</th><th>Customer</th><th>Date</th><th>Items</th><th>Total</th><th>Status</th><th>Payment</th></tr>
+    {{{rows}}}
+  </table></div>
+  {{{pager}}}
+</div>

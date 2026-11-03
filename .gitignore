@@ -1,0 +1,10 @@
+db.conf
+server.exe
+__pycache__/
+
+# local-only files
+libmysql.dll
+/admin.txt
+/c.txt
+/race.txt
+old/

@@ -1,0 +1,7 @@
+<tr>
+  <td data-label="Product"><a href="/product?id={{id}}">{{name}}</a>{{{warn}}}</td>
+  <td data-label="Price">{{price}}</td>
+  <td data-label="Quantity"><form class="inline" method="post" action="/cart/update"><input type="hidden" name="product_id" value="{{id}}"><input type="number" name="qty" value="{{qty}}" min="0" max="{{max}}"> <button>Update</button></form></td>
+  <td data-label="Subtotal">{{subtotal}}</td>
+  <td class="cell-act"><form class="inline" method="post" action="/cart/remove"><input type="hidden" name="product_id" value="{{id}}"><button class="link-danger">Remove</button></form></td>
+</tr>

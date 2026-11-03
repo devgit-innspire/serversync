@@ -1,0 +1,5 @@
+<div class="addr-card {{extra_class}}">
+<div class="addr-head">{{{badge}}}</div>
+<p class="addr-text">{{{text}}}</p>
+<div class="addr-actions"><a class="button" href="/addresses/edit?id={{id}}">Edit</a> {{{default_form}}} <form class="inline" method="post" action="/addresses/delete"><input type="hidden" name="address_id" value="{{id}}"><button class="link-danger">Delete</button></form></div>
+</div>

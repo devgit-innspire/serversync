@@ -1,0 +1,17 @@
+<div class="shop">
+  <aside class="sidebar">
+    <h3>Categories</h3>
+    <ul class="side-cats">{{{side_cats}}}</ul>
+    <h3>Price (&#8377;)</h3>
+    <form class="price-form" method="get" action="/products">{{{hidden_fields}}}
+      <input type="number" name="min" placeholder="Min" min="0" value="{{min}}">
+      <input type="number" name="max" placeholder="Max" min="0" value="{{max}}">
+      <button class="primary">Apply</button>
+    </form>
+  </aside>
+  <section class="shop-main">
+    <div class="shop-head"><h1>{{heading}}</h1><p class="muted">{{count}}{{note}}</p></div>
+    {{{empty_message}}}
+    <div class="grid">{{{cards}}}</div>
+  </section>
+</div>

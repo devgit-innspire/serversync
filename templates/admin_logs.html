@@ -1,0 +1,31 @@
+<div class="head-row"><h1>Logs</h1></div>
+<section class="card">
+  <h2>Requests per worker (last 5 minutes)</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Worker</th><th>Requests</th><th>Avg latency (ms)</th><th>Share</th></tr>
+    {{{worker_rows}}}
+  </table></div>
+</section>
+<form class="card filters" method="get" action="/admin/logs">
+  <input type="number" name="worker" value="{{worker}}" placeholder="Worker id" min="-1000" max="100000" aria-label="Worker id">
+  <select name="cls" aria-label="Status class">{{{class_options}}}</select>
+  <input type="search" name="path" value="{{path}}" placeholder="Path contains" maxlength="100" aria-label="Path contains">
+  <label class="check"><input type="checkbox" name="refresh" value="1" {{refresh_checked}}> Refresh every 3 s</label>
+  <button class="btn btn-primary">Filter</button>
+  <a class="btn" href="/admin/logs">Reset</a>
+</form>
+<section class="card">
+  <h2>Recent requests</h2>
+  <p class="muted">{{log_count}}</p>
+  <div class="table-wrap"><table>
+    <tr><th>Time</th><th>Method</th><th>Path</th><th>Status</th><th>Latency ms</th><th>Queue wait ms</th><th>Worker</th><th>User</th></tr>
+    {{{log_rows}}}
+  </table></div>
+</section>
+<section class="card">
+  <h2>Admin activity</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Time</th><th>Admin</th><th>Action</th><th>Details</th></tr>
+    {{{action_rows}}}
+  </table></div>
+</section>

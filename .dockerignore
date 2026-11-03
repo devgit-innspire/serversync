@@ -1,0 +1,8 @@
+db.conf
+*.exe
+*.dll
+*.txt
+old/
+docs/
+tests/
+.git/

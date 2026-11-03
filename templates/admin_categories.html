@@ -1,0 +1,11 @@
+<div class="head-row"><h1>Categories</h1></div>
+<form class="card filters" method="post" action="/admin/categories/add">
+  <input name="name" placeholder="New category name" maxlength="50" required aria-label="New category name">
+  <button class="btn btn-primary">Add category</button>
+</form>
+<div class="card">
+  <div class="table-wrap"><table>
+    <tr><th>#</th><th>Name</th><th>Products</th><th>Actions</th></tr>
+    {{{rows}}}
+  </table></div>
+</div>

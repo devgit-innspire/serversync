@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+{{{head_extra}}}<title>{{title}} - ServerSync</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css?v={{ver}}">
+</head>
+<body>
+<header class="site-header">
+{{{nav}}}
+</header>
+<main class="container">
+{{{flash}}}{{{content}}}
+</main>
+<footer class="site-footer">
+  <div class="footer-cols">
+    <div><h4>Shop</h4><a href="/products">All products</a><a href="/products?max=1000">Under &#8377;1,000</a></div>
+    <div><h4>Your account</h4><a href="/orders">Orders</a><a href="/sessions">My Sessions</a><a href="/cart">Cart</a></div>
+    <div><h4>Payments</h4><span>Cash on Delivery</span><span>Pay when your order arrives</span></div>
+    <div><h4>Project</h4><span>Multithreaded C++ server + MySQL</span><span>No frameworks, no CDN</span></div>
+  </div>
+</footer>
+{{{modals}}}{{{scripts}}}
+</body>
+</html>

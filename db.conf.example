@@ -1,0 +1,7 @@
+# Copy this file to db.conf and fill in your own MySQL details. db.conf is git-ignored.
+host=localhost
+user=your_mysql_user
+password=your_mysql_password
+database=ecommerce_db
+# optional (default 3306)
+port=3306

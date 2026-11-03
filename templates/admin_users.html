@@ -1,0 +1,14 @@
+<div class="head-row"><h1>Users</h1></div>
+<form class="card filters" method="get" action="/admin/users">
+  <input type="search" name="q" value="{{q}}" placeholder="Search by name or email" maxlength="100" aria-label="Search by name or email">
+  <button class="btn btn-primary">Search</button>
+  <a class="btn" href="/admin/users">Reset</a>
+</form>
+<div class="card">
+  <p class="muted">{{count}}</p>
+  <div class="table-wrap"><table>
+    <tr><th>#</th><th>Name</th><th>Email</th><th>Role</th><th>Joined</th><th>Orders</th><th>Active sessions</th><th>Actions</th></tr>
+    {{{rows}}}
+  </table></div>
+  {{{pager}}}
+</div>

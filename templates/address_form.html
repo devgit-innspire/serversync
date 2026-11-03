@@ -1,0 +1,17 @@
+<h1>{{title}}</h1>
+<form class="panel addr-form" method="post" action="{{action}}">
+{{{hidden}}}
+<div class="form-grid">
+<label>First name <input name="first_name" maxlength="50" value="{{first_name}}" required></label>
+<label>Last name <input name="last_name" maxlength="50" value="{{last_name}}" required></label>
+<label>Phone (10 digits) <input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" value="{{phone}}" required></label>
+<label>Address type <select name="address_type">{{{types}}}</select></label>
+<label class="wide">Address line 1 <input name="line1" maxlength="150" value="{{line1}}" required></label>
+<label class="wide">Address line 2 (optional) <input name="line2" maxlength="150" value="{{line2}}"></label>
+<label class="wide">Landmark (optional) <input name="landmark" maxlength="100" value="{{landmark}}"></label>
+<label>City <input name="city" maxlength="80" value="{{city}}" required></label>
+<label>State <select name="state_id" required><option value="">Choose a state</option>{{{states}}}</select></label>
+<label>Pincode <input name="pincode" inputmode="numeric" pattern="[1-9][0-9]{5}" maxlength="6" value="{{pincode}}" required></label>
+</div>
+<div class="actions"><button class="primary">{{button}}</button> <a class="button" href="{{cancel}}">Cancel</a></div>
+</form>

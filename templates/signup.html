@@ -1,0 +1,10 @@
+<h1>Sign up</h1>
+<form class="box" method="post" action="/signup">
+  <label>Name</label><input name="name" maxlength="100" value="{{name}}">
+  <label>Email</label><input name="email" maxlength="100" value="{{email}}">
+  <label>Password</label>{{{password_field}}}
+  <label>Confirm password</label>{{{confirm_field}}}
+  {{{rules}}}
+  <button class="primary">Create account</button>
+</form>
+<p class="muted">Already registered? <a href="/login">Login</a></p>

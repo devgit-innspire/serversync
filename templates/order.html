@@ -1,0 +1,13 @@
+<h1>Order #{{id}}</h1>
+{{{timeline}}}
+{{{address}}}
+<div class="panel">
+<p class="order-meta"><span class="om-row"><span class="om-k">Status:</span> <span class="om-v"><span class="pill pill-{{status_class}}">{{status}}</span></span></span><span class="om-dot"> &middot; </span><span class="om-row"><span class="om-k">Placed:</span> <span class="om-v"><b>{{placed}}</b></span></span><span class="om-dot"> &middot; </span><span class="om-row"><span class="om-k">Payment:</span> <span class="om-v">{{{payment}}}</span></span></p>
+<div class="table-wrap"><table class="stack">
+<tr class="thead"><th>Product</th><th>Qty</th><th>Price</th><th>Subtotal</th></tr>
+{{{rows}}}
+<tr class="total"><td colspan="3"><b>Total</b></td><td><b>{{total}}</b></td></tr>
+</table></div>
+</div>
+{{{actions}}}
+<p><a href="/orders">&larr; All orders</a></p>

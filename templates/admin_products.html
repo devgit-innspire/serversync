@@ -1,0 +1,15 @@
+<div class="head-row"><h1>Products</h1><a class="btn btn-primary" href="/admin/products/new">+ New product</a></div>
+<form class="card filters" method="get" action="/admin/products">
+  <input type="search" name="q" value="{{q}}" placeholder="Search by name" maxlength="100" aria-label="Search by name">
+  <select name="cat" aria-label="Category">{{{options}}}</select>
+  <label class="check"><input type="checkbox" name="hidden" value="1" {{hidden_checked}}> Show hidden</label>
+  <button class="btn btn-primary">Filter</button>
+  <a class="btn" href="/admin/products">Reset</a>
+</form>
+<div class="card">
+  <p class="muted">{{count}}</p>
+  <div class="table-wrap"><table>
+    <tr><th>#</th><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th></tr>
+    {{{rows}}}
+  </table></div>
+</div>

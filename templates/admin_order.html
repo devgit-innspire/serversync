@@ -1,0 +1,32 @@
+<div class="head-row"><h1>Order #{{id}}</h1><a class="btn" href="/admin/orders">&larr; All orders</a></div>
+<div class="two">
+  <div class="stack-wide">
+  <section class="card">
+    <h2>Items</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Product</th><th>Qty</th><th>Price at purchase</th><th>Subtotal</th></tr>
+      {{{rows}}}
+      <tr class="total"><td colspan="3"><b>Total</b></td><td><b>{{total}}</b></td></tr>
+    </table></div>
+  </section>
+  <section class="card">
+    <h2>Status history</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Time</th><th>Status</th><th>Changed by</th></tr>
+      {{{history}}}
+    </table></div>
+  </section>
+  </div>
+  <section class="card">
+    <h2>Customer</h2>
+    <p><strong>{{name}}</strong><br>{{email}}</p>
+    <h3>Order</h3>
+    <p><span class="pill pill-{{status_class}}">{{status}}</span><br><span class="muted">Placed {{placed}}</span></p>
+    <h3>Shipping address</h3>
+    <p>{{{address}}}</p>
+    <h3>Payment</h3>
+    <p>{{{payment}}}</p>
+    <h3>Change status</h3>
+    {{{actions}}}
+  </section>
+</div>

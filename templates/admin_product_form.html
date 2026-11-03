@@ -1,0 +1,14 @@
+<div class="head-row"><h1>{{heading}}</h1><a class="btn" href="/admin/products">&larr; Back to products</a></div>
+<form class="card form" method="post" action="{{action}}">
+  {{{error}}}{{{id_field}}}
+  <label for="f-name">Name <small>(1 to 100 characters)</small></label>
+  <input id="f-name" name="name" value="{{name}}" maxlength="100" required>
+  <label for="f-desc">Description <small>(up to 255 characters)</small></label>
+  <textarea id="f-desc" name="description" maxlength="255" rows="3">{{description}}</textarea>
+  <label for="f-price">Price (&#8377;) <small>(more than 0, at most 1,000,000)</small></label>
+  <input id="f-price" name="price" value="{{price}}" inputmode="decimal" required>
+  <label for="f-cat">Category</label>
+  <select id="f-cat" name="category_id" required>{{{options}}}</select>
+  <p class="muted">{{note}}</p>
+  <div class="actions"><button class="btn btn-primary">{{submit}}</button> <a class="btn" href="/admin/products">Cancel</a></div>
+</form>

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+{{{head_extra}}}<title>{{title}} - ServerSync Admin</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/admin.css?v={{ver}}">
+</head>
+<body>
+<div class="admin">
+<aside class="side">
+  <input type="checkbox" id="adminMenu" class="side-check" aria-label="Show admin menu">
+  <div class="side-top"><a class="brand" href="/admin">Server<span>Sync</span> <small>Admin</small></a><label for="adminMenu" class="side-toggle" aria-hidden="true">&#9776;</label></div>
+  <nav class="side-nav">{{{sidebar}}}</nav>
+  <div class="side-foot">
+    <div class="who">Signed in as<strong>{{name}}</strong></div>
+    <a class="foot-link" href="/">&larr; Back to store</a>
+    <form method="post" action="/logout" class="inline"><button class="foot-link">&#128682; Sign out</button></form>
+  </div>
+</aside>
+<main class="main">
+{{{flash}}}{{{content}}}
+</main>
+</div>
+</body>
+</html>
