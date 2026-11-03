@@ -1,5 +1,5 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "https://serversync.onrender.com/$1" }
+    { "source": "/(.*)", "destination": "https://serversync-wo8b.onrender.com/$1" }
   ]
 }
