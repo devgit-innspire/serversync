@@ -5,3 +5,4 @@ as described at the top of each file (`mysql -u <user> -p --default-character-se
 `alter_002` and `alter_006` are replaced by `alter_008` (it sets the final list of order statuses), so skip them if you run 008.
 `alter_010` added `users.must_change_pw` and `alter_011` drops it again (that feature was removed): run both only if your database
 already has the column, otherwise skip both.
+`alter_012` adds UPI / Card / Net Banking payments (`payments.pay_detail`, `payments.txn_ref` and a CHECK on `method`).

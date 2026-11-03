@@ -162,6 +162,14 @@ struct CheckoutResult {
                                     // (status 404 = chuna hua address nahi mila / kisi aur ka / delete ho chuka)
 };
 
+// checkout par chuna hua payment (pages.cpp form jaanch ke bharta hai). Gateway simulated hai: asli paise nahi katte
+struct PaymentInfo {
+    string method = "COD";          // COD, UPI, CARD, NETBANKING
+    string detail;                  // dikhane layak: UPI ID / "VISA **** 1111" / bank ka naam. Poora card number ya CVV kabhi nahi
+    string txn_ref;                 // online payment ka transaction id (COD me "")
+    bool declined = false;          // bank ne mana kiya (test card / test UPI): checkout ROLLBACK, order nahi banta
+};
+
 // ek shipping address ka form (sab text; state_id bhi text me, validation address_check karta hai)
 struct Address {
     string id;                      // "" = naya
@@ -263,7 +271,8 @@ bool cart_items(MYSQL* m, int cart_id, vector<vector<string>>& rows);   // produ
 int cart_count(MYSQL* m, int user_id);              // cart ke total items, error -1
 // checkout: ek pooled connection par ek DB transaction (retry deadlock par). Cart session ke user ka hota hai.
 // address_id: user ka chuna hua shipping address; transaction ke andar check hota hai ki usi user ka aur active hai (nahi to 404)
-CheckoutResult do_checkout(int user_id, int address_id);
+// pay: COD (default) ya online; online PAID usi transaction me hota hai, declined ho to poora ROLLBACK
+CheckoutResult do_checkout(int user_id, int address_id, const PaymentInfo& pay = PaymentInfo());
 // shipping addresses (sab session ke user_id se; kisi aur ka address kabhi nahi milta)
 string address_check(Address& a);   // trim karke jaanch: "" = theek, warna user ko dikhane layak message
 AddressResult address_save(int user_id, const Address& a, bool is_new);   // naya (max MAX_ADDRESSES) ya edit; ek transaction

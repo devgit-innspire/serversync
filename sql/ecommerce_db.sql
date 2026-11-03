@@ -312,13 +312,21 @@ CREATE TABLE payments (
     payment_id INT AUTO_INCREMENT PRIMARY KEY,
     order_id   INT NOT NULL,
     amount     DECIMAL(10,2) NOT NULL,
-    method     VARCHAR(30) DEFAULT 'COD',
+    -- COD = cash on delivery (PENDING until delivered). UPI / CARD / NETBANKING = paid online at checkout (simulated gateway).
+    method     VARCHAR(30) NOT NULL DEFAULT 'COD',
+    -- What the customer paid with, safe to show: the UPI ID, card brand + last 4 digits, or the bank name.
+    -- The full card number and the CVV are never stored.
+    pay_detail VARCHAR(80) NULL,
+    -- Transaction id from the (simulated) payment gateway; NULL for COD.
+    txn_ref    VARCHAR(30) NULL,
     status     VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     -- NULL until the payment is actually made; the server sets it then.
     paid_at    TIMESTAMP NULL DEFAULT NULL,
     FOREIGN KEY (order_id) REFERENCES orders(order_id),
     UNIQUE(order_id),
     CONSTRAINT chk_payments_amount CHECK (amount >= 0),
+    CONSTRAINT chk_payments_method CHECK (method IN ('COD', 'UPI', 'CARD', 'NETBANKING')),
+    -- REFUNDED = an online payment whose order was cancelled (the money goes back). A COD order that is cancelled is CANCELLED.
     CONSTRAINT chk_payments_status CHECK (status IN ('PENDING', 'PAID', 'REFUNDED', 'CANCELLED'))
 ) ENGINE=InnoDB;
 

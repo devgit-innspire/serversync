@@ -1,0 +1,20 @@
+<div class="panel pay">
+<h2 class="tl-title">Payment method</h2>
+<p class="muted pay-note">Test mode: no real money is charged. Success card <b>4111 1111 1111 1111</b>, declined card <b>4000 0000 0000 0002</b>, declined UPI <b>fail@upi</b>.</p>
+<label class="pay-opt"><input type="radio" name="pay_method" value="COD" {{cod}}> <b>Cash on Delivery</b> <span class="muted">Pay when your order arrives</span></label>
+<label class="pay-opt"><input type="radio" name="pay_method" value="UPI" {{upi}}> <b>UPI</b> <span class="muted">Google Pay, PhonePe, Paytm, BHIM</span></label>
+<div class="pay-fields pay-upi">
+<label>UPI ID <input name="upi_id" value="{{upi_id}}" placeholder="name@okaxis" maxlength="100" autocomplete="off"></label>
+</div>
+<label class="pay-opt"><input type="radio" name="pay_method" value="CARD" {{card}}> <b>Credit / Debit card</b> <span class="muted">Visa, Mastercard, RuPay, Amex</span></label>
+<div class="pay-fields pay-card">
+<label class="wide">Card number <input name="card_number" inputmode="numeric" autocomplete="cc-number" maxlength="23" placeholder="4111 1111 1111 1111"></label>
+<label class="wide">Name on card <input name="card_name" value="{{card_name}}" autocomplete="cc-name" maxlength="60"></label>
+<label>Expiry (MM/YY) <input name="card_expiry" value="{{card_expiry}}" autocomplete="cc-exp" maxlength="5" placeholder="08/29"></label>
+<label>CVV <input name="card_cvv" type="password" inputmode="numeric" autocomplete="cc-csc" maxlength="4"></label>
+</div>
+<label class="pay-opt"><input type="radio" name="pay_method" value="NETBANKING" {{netbanking}}> <b>Net Banking</b> <span class="muted">All major Indian banks</span></label>
+<div class="pay-fields pay-netbanking">
+<label>Bank <select name="bank">{{{banks}}}</select></label>
+</div>
+</div>

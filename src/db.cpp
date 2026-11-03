@@ -630,7 +630,7 @@ static bool exec_one(MYSQL* m, const string& sql, const vector<string>& args, in
 }
 
 // Transaction ke andar ka kaam (db_begin ho chuka hai). COMMIT/ROLLBACK yeh nahi karta, caller karta hai.
-static int checkout_steps(MYSQL* m, int user_id, int address_id, CheckoutResult& r, int& err) {
+static int checkout_steps(MYSQL* m, int user_id, int address_id, const PaymentInfo& pay, CheckoutResult& r, int& err) {
     vector<vector<string>> rows;
     err = 0;
 
@@ -727,10 +727,18 @@ static int checkout_steps(MYSQL* m, int user_id, int address_id, CheckoutResult&
             return fail_code(err, r, err == 0 ? "Stock changed, please try again." : "Database error");
     }
 
-    // STEP 7: payment row: Cash on Delivery, abhi PENDING, paid_at NULL (paise delivery par milenge)
-    if (!exec_one(m, "INSERT INTO payments (order_id, amount, method, status, paid_at) "
-                     "SELECT order_id, total, 'COD', 'PENDING', NULL FROM orders WHERE order_id = ?",
-                  {order_id}, err))
+    // STEP 7: payment. Gateway ka "charge" order aur stock lock hone ke BAAD, COMMIT se pehle: bank mana kare to CO_PROBLEM ->
+    // ROLLBACK, yaani order, order_items, stock sab wapas, jaise kuch hua hi nahi (paise bhi nahi kate)
+    if (pay.declined) {
+        r.message = "Payment declined by the bank. No money was taken and the order was not placed.";
+        return CO_PROBLEM;
+    }
+    // COD: PENDING, paid_at NULL (paise delivery par). Online: abhi PAID + paid_at + txn_ref, isi transaction me
+    bool online = pay.method != "COD";
+    if (!exec_one(m, "INSERT INTO payments (order_id, amount, method, pay_detail, txn_ref, status, paid_at) "
+                     "SELECT order_id, total, ?, NULLIF(?, ''), NULLIF(?, ''), ?, " + string(online ? "NOW()" : "NULL") +
+                     " FROM orders WHERE order_id = ?",
+                  {pay.method, pay.detail, pay.txn_ref, online ? "PAID" : "PENDING", order_id}, err))
         return fail_code(err, r, "Database error");
 
     // STEP 8: cart ab CHECKED_OUT (purana cart band; agli baar naya ACTIVE cart banega)
@@ -745,7 +753,7 @@ static int checkout_steps(MYSQL* m, int user_id, int address_id, CheckoutResult&
 }
 
 // Ek poori koshish: BEGIN -> steps -> COMMIT (ya ROLLBACK). Return: CO_* code, r me status/message
-static int checkout_attempt(MYSQL* m, int user_id, int address_id, CheckoutResult& r) {
+static int checkout_attempt(MYSQL* m, int user_id, int address_id, const PaymentInfo& pay, CheckoutResult& r) {
     string who = "user " + to_string(user_id);
     if (!db_begin(m)) {
         r.status = 500;
@@ -754,7 +762,7 @@ static int checkout_attempt(MYSQL* m, int user_id, int address_id, CheckoutResul
     }
 
     int err = 0;
-    int code = checkout_steps(m, user_id, address_id, r, err);
+    int code = checkout_steps(m, user_id, address_id, pay, r, err);
 
     // STEP 9: sab theek raha to COMMIT: ab saare changes ek saath pakke aur dusron ko dikhte hain
     if (code == CO_OK && mysql_commit(m)) {
@@ -782,7 +790,7 @@ static int checkout_attempt(MYSQL* m, int user_id, int address_id, CheckoutResul
     return code;
 }
 
-CheckoutResult do_checkout(int user_id, int address_id) {
+CheckoutResult do_checkout(int user_id, int address_id, const PaymentInfo& pay) {
     CheckoutResult r;
     int id = 0;
     MYSQL* m = get_conn(id);            // poora checkout isi ek connection par (transaction ek connection ki hoti hai)
@@ -790,7 +798,7 @@ CheckoutResult do_checkout(int user_id, int address_id) {
 
     for (int attempt = 1; attempt <= CHECKOUT_RETRIES; attempt++) {
         r = CheckoutResult();
-        int code = checkout_attempt(m, user_id, address_id, r);
+        int code = checkout_attempt(m, user_id, address_id, pay, r);
         if (code != CO_RETRY) break;
 
         // deadlock / timeout: poori transaction shuru se dobara (ROLLBACK ho chuka hai, kuch adhura nahi bacha)
@@ -1176,15 +1184,18 @@ static int order_steps(MYSQL* m, int order_id, const string& to, int user_id, bo
                    {oid, to, sched, by}, err);
     if (!hist_ok) return order_fail(err, r, "Database error");
 
-    // STEP 5: payment usi transaction me. DELIVERED = paise mil gaye (PAID + paid_at), CANCELLED = payment bhi CANCELLED.
-    // beech ke steps me payment nahi badalta (COD: paise delivery par milte hain)
+    // STEP 5: payment usi transaction me. Beech ke steps me payment nahi badalta.
+    // DELIVERED: COD ke paise ab mile (PENDING -> PAID + paid_at). Online pehle se PAID hai: "AND status = 'PENDING'" ki
+    // wajah se uska asli paid_at nahi badalta (0 rows bhi theek, isliye exec_one nahi).
+    // CANCELLED: online ke paise kat chuke the -> REFUNDED (wapas). COD ke paise mile hi nahi the -> CANCELLED.
     if (to == "DELIVERED") {
-        bool paid_ok = sched.empty()
-            ? exec_one(m, "UPDATE payments SET status = 'PAID', paid_at = NOW() WHERE order_id = ?", {oid}, err)
-            : exec_one(m, "UPDATE payments SET status = 'PAID', paid_at = ? WHERE order_id = ?", {sched, oid}, err);
-        if (!paid_ok) return order_fail(err, r, "Database error");
+        int n = sched.empty()
+            ? db_exec_on(m, "UPDATE payments SET status = 'PAID', paid_at = NOW() WHERE order_id = ? AND status = 'PENDING'", {oid}, &err)
+            : db_exec_on(m, "UPDATE payments SET status = 'PAID', paid_at = ? WHERE order_id = ? AND status = 'PENDING'", {sched, oid}, &err);
+        if (n < 0) return order_fail(err, r, "Database error");
     } else if (to == "CANCELLED") {
-        if (db_exec_on(m, "UPDATE payments SET status = 'CANCELLED' WHERE order_id = ?", {oid}, &err) < 0)
+        if (db_exec_on(m, "UPDATE payments SET status = IF(status = 'PAID', 'REFUNDED', 'CANCELLED') WHERE order_id = ?",
+                       {oid}, &err) < 0)
             return order_fail(err, r, "Database error");
     }
 

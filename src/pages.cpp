@@ -72,7 +72,7 @@ static const char* REQUIRED_TEMPLATES[] = {
     "error_list", "error_list_item", "pw_field", "pw_rules", "pw_rule_item", "change_password",
     "drawer", "drawer_user", "drawer_admin", "drawer_guest", "tabbar",
     "address_extra", "address_text", "address_none", "address_default_badge", "address_default_form", "address_card", "addresses",
-    "addresses_empty", "address_form", "checkout_address", "checkout_no_address", "checkout_place", "order_address", "admin_products", "admin_product_row", "admin_product_form", "admin_categories", "admin_category_row", "metric_row", "metrics", "test_item", "test", "dbtest",
+    "addresses_empty", "address_form", "checkout_address", "checkout_no_address", "checkout_place", "checkout_payment", "order_address", "admin_products", "admin_product_row", "admin_product_form", "admin_categories", "admin_category_row", "metric_row", "metrics", "test_item", "test", "dbtest",
     "flash_added", "flash_max", "flash_out", "flash_stock", "modals", "scripts"};
 
 // dir ki saari *.html files (naam = file ka naam .html ke bina). Return: zaroori sab mil gaye?
@@ -1511,8 +1511,155 @@ static int address_default_page(SOCKET client, const Request& req) {
 
 // ---- checkout aur orders ----
 
-// checkout ka confirm page: cart ka saar aur total dikhao (sirf dekhna, kuch badalta nahi)
-static int checkout_confirm_page(SOCKET client, const Request& req) {
+// ---- payment (simulated gateway: asli paise nahi katte, par jaanch asli jaisi) ----
+// Net Banking ke bank: code form me jaata hai, naam payments.pay_detail me
+struct Bank {
+    const char* code;
+    const char* name;
+};
+static const Bank BANKS[] = {{"SBI", "State Bank of India"}, {"HDFC", "HDFC Bank"}, {"ICICI", "ICICI Bank"}, {"AXIS", "Axis Bank"},
+                             {"KOTAK", "Kotak Mahindra Bank"}, {"PNB", "Punjab National Bank"}, {"BOB", "Bank of Baroda"}};
+
+// Test values (asli gateways ke test mode jaise): yeh card / UPI ID "bank ne mana kiya" dete hain, ROLLBACK dikhane ke liye
+const string DECLINED_CARD = "4000000000000002";
+const string DECLINED_UPI = "fail@upi";
+
+// card number ka Luhn checksum (har card number me hota hai): galat type kiya ek bhi digit pakad leta hai
+static bool luhn_ok(const string& digits) {
+    int sum = 0;
+    bool twice = false;                     // daayein se har doosra digit double
+    for (size_t i = digits.size(); i-- > 0;) {
+        int d = digits[i] - '0';
+        if (twice) {
+            d *= 2;
+            if (d > 9) d -= 9;
+        }
+        sum += d;
+        twice = !twice;
+    }
+    return sum % 10 == 0;
+}
+
+// number ki shuruaat se card ka brand (sirf dikhane ke liye)
+static string card_brand(const string& d) {
+    int two = atoi(d.substr(0, 2).c_str());
+    int four = atoi(d.substr(0, 4).c_str());
+    if (d[0] == '4') return "VISA";
+    if ((two >= 51 && two <= 55) || (four >= 2221 && four <= 2720)) return "MASTERCARD";
+    if (two == 34 || two == 37) return "AMEX";
+    if (two == 60 || two == 65 || two == 81 || two == 82) return "RUPAY";
+    return "CARD";
+}
+
+// expiry "MM/YY": sahi month aur is mahine ya baad ka (is mahine ke aakhir tak card chalta hai)
+static bool expiry_ok(const string& e) {
+    if (e.size() != 5 || e[2] != '/' || !is_number(e.substr(0, 2)) || !is_number(e.substr(3, 2))) return false;
+    int mm = atoi(e.substr(0, 2).c_str());
+    int yy = 2000 + atoi(e.substr(3, 2).c_str());
+    if (mm < 1 || mm > 12) return false;
+    time_t now = time(nullptr);
+    tm t;
+#ifdef _WIN32
+    localtime_s(&t, &now);
+#else
+    localtime_r(&now, &t);
+#endif
+    int cur = (t.tm_year + 1900) * 12 + t.tm_mon + 1;
+    return yy * 12 + mm >= cur;
+}
+
+// UPI ID: naam@bank, jaise ravi.kumar@okaxis (naam: a-z 0-9 . _ -, bank: sirf letters)
+static bool upi_ok(const string& u) {
+    size_t at = u.find('@');
+    if (at == string::npos || at < 2 || at > 64 || u.size() - at - 1 < 2 || u.size() - at - 1 > 32) return false;
+    for (size_t i = 0; i < u.size(); i++) {
+        char c = u[i];
+        if (i < at && !(isalnum((unsigned char)c) || c == '.' || c == '_' || c == '-')) return false;
+        if (i > at && !isalpha((unsigned char)c)) return false;
+    }
+    return true;
+}
+
+// gateway ka transaction id: "TXN" + 12 random hex (session id wale OS ke secure random se)
+static string new_txn_ref() {
+    string hex;
+    if (!new_session_id(hex)) return "";
+    string out = "TXN";
+    for (size_t i = 0; i < 12; i++) out += (char)toupper((unsigned char)hex[i]);
+    return out;
+}
+
+// checkout form ka payment padho aur jaancho. "" = theek (pay bhar gaya), warna user ko dikhane layak galti.
+// Card number aur CVV sirf yahin jaanche jaate hain: na DB me jaate hain, na log me
+static string read_payment(const Request& req, PaymentInfo& pay) {
+    pay.method = trim(field(req, "pay_method"));
+    if (pay.method == "COD") return "";
+
+    if (pay.method == "UPI") {
+        string upi = lower_ascii(trim(field(req, "upi_id")));
+        if (!upi_ok(upi)) return "Enter a valid UPI ID, like name@okaxis.";
+        pay.detail = upi;
+        pay.declined = (upi == DECLINED_UPI);
+    } else if (pay.method == "CARD") {
+        string num;
+        for (char c : field(req, "card_number")) {
+            if (c == ' ' || c == '-') continue;                 // "4111 1111 ..." bhi chalta hai
+            if (c < '0' || c > '9') return "Card number can only have digits.";
+            num += c;
+        }
+        if (num.size() < 13 || num.size() > 19 || !luhn_ok(num)) return "That card number is not valid. Please check it.";
+        string brand = card_brand(num);
+        string name = trim(field(req, "card_name"));
+        if (name.size() < 2 || name.size() > 60) return "Enter the name printed on the card.";
+        if (!expiry_ok(trim(field(req, "card_expiry")))) return "Enter a valid expiry date (MM/YY) that is not in the past.";
+        string cvv = trim(field(req, "card_cvv"));
+        size_t want = (brand == "AMEX") ? 4 : 3;
+        if (cvv.size() != want || !is_number(cvv)) return "CVV must be " + to_string(want) + " digits.";
+        pay.detail = brand + " **** " + num.substr(num.size() - 4);
+        pay.declined = (num == DECLINED_CARD);
+    } else if (pay.method == "NETBANKING") {
+        string code = trim(field(req, "bank"));
+        for (const Bank& b : BANKS)
+            if (code == b.code) pay.detail = b.name;
+        if (pay.detail.empty()) return "Please choose your bank.";
+    } else {
+        return "Please choose a payment method.";
+    }
+
+    pay.txn_ref = new_txn_ref();
+    if (pay.txn_ref.empty()) return "Could not start the payment. Please try again.";
+    return "";
+}
+
+// checkout page ka payment panel. POST me galti ho to chuna hua tarika, UPI ID, naam, expiry, bank wapas bhare hote hain
+// (card number aur CVV kabhi wapas nahi bhejte)
+static string payment_panel(const Request& req) {
+    bool post = req.method == "POST";
+    string m = post ? trim(field(req, "pay_method")) : "";
+    if (m != "UPI" && m != "CARD" && m != "NETBANKING") m = "COD";
+    string bank = post ? field(req, "bank") : "";
+    string banks = render("search_option", {{"value", ""}, {"label", "Choose your bank"}, {"selected", ""}});
+    for (const Bank& b : BANKS)
+        banks += render("search_option", {{"value", b.code}, {"label", b.name}, {"selected", bank == b.code ? "selected" : ""}});
+    return render("checkout_payment", {{"cod", m == "COD" ? "checked" : ""}, {"upi", m == "UPI" ? "checked" : ""},
+                                       {"card", m == "CARD" ? "checked" : ""}, {"netbanking", m == "NETBANKING" ? "checked" : ""},
+                                       {"upi_id", post ? field(req, "upi_id") : ""}, {"card_name", post ? field(req, "card_name") : ""},
+                                       {"card_expiry", post ? field(req, "card_expiry") : ""}, {"banks", banks}});
+}
+
+// payment ka dikhne wala hissa (order page aur admin order page): tarika + detail, status ki goli, kab paid, transaction id
+static string payment_html(const string& method, const string& detail, const string& status, const string& paid, const string& txn) {
+    if (method.empty()) return "-";
+    string label = method == "COD" ? "Cash on Delivery" : method == "UPI" ? "UPI" : method == "CARD" ? "Card"
+                 : method == "NETBANKING" ? "Net Banking" : method;
+    return render("order_payment", {{"method", label}, {"detail", detail.empty() ? "" : " (" + detail + ")"},
+                                    {"status", status}, {"status_class", status_class(status)},
+                                    {"paid", paid.empty() ? "" : ", paid " + paid}, {"txn", txn.empty() ? "" : ", Txn " + txn}});
+}
+
+// checkout ka confirm page: cart ka saar aur total dikhao (sirf dekhna, kuch badalta nahi).
+// status/error: payment form galat tha to wahi page 400 aur galti ke saath
+static int checkout_confirm_page(SOCKET client, const Request& req, int status = 200, const string& error = "") {
     vector<vector<string>> rows;
     if (!load_cart_rows(req.user_id, rows)) return error_page(client, req, 500, "Database error");
     if (!cols_ok(rows, 5)) return error_page(client, req, 500, "Database error");
@@ -1538,7 +1685,7 @@ static int checkout_confirm_page(SOCKET client, const Request& req) {
     // /checkout?address_id=N (abhi add kiya hua address) ho to wo chuna hota hai
     vector<vector<string>> addrs;
     if (!load_addresses(req.user_id, addrs)) return error_page(client, req, 500, "Database error");
-    string want = param(req, "address_id");
+    string want = req.method == "POST" ? field(req, "address_id") : param(req, "address_id");
     size_t pick = 0;
     for (size_t i = 0; i < addrs.size(); i++)
         if (addrs[i][0] == want) pick = i;
@@ -1548,9 +1695,11 @@ static int checkout_confirm_page(SOCKET client, const Request& req) {
                                              {"badge", addrs[i][11] == "1" ? render("address_default_badge", {}) : ""},
                                              {"text", address_html(addrs[i], 1)}});
     if (addrs.empty()) cards = render("checkout_no_address", {});      // address ke bina order nahi: button hi nahi
-    return send_page(client, req, 200, "Checkout",
-                     render("checkout", {{"warnings", warnings}, {"addresses", cards}, {"rows", body}, {"total", rupees(total)},
-                                         {"place", addrs.empty() ? "" : render("checkout_place", {})}}));
+    return send_page(client, req, status, "Checkout",
+                     render("checkout", {{"warnings", warnings}, {"addresses", cards}, {"payment", payment_panel(req)},
+                                         {"rows", body}, {"total", rupees(total)},
+                                         {"place", addrs.empty() ? "" : render("checkout_place", {})}}),
+                     "", error.empty() ? "" : flash_text("err", error));
 }
 
 // GET /checkout = confirm page, POST /checkout = order banao (ek DB transaction, db.cpp ka do_checkout)
@@ -1564,7 +1713,11 @@ static int checkout_page(SOCKET client, const Request& req) {
     if (!valid_product_id(aid))
         return send_page(client, req, 400, "Order not placed", render("checkout_failed", {}), "",
                          flash_text("err", "Please choose a shipping address."));
-    CheckoutResult r = do_checkout(req.user_id, atoi(aid.c_str()));
+    // payment form galat ho to wahi checkout page galti ke saath (address, tarika, UPI ID wapas bhare), order ki koshish hi nahi
+    PaymentInfo pay;
+    string bad = read_payment(req, pay);
+    if (!bad.empty()) return checkout_confirm_page(client, req, 400, bad);
+    CheckoutResult r = do_checkout(req.user_id, atoi(aid.c_str()), pay);
     if (r.status == 200) return redirect(client, req, "/order?id=" + to_string(r.order_id));   // Post/Redirect/Get
 
     string retry = (r.status == 503) ? "Retry-After: 2\r\n" : "";
@@ -1598,7 +1751,7 @@ static int orders_page(SOCKET client, const Request& req) {
 static bool load_order(MYSQL* m, int user_id, const string& id, vector<vector<string>>& head,
                        vector<vector<string>>& items, vector<vector<string>>& hist, string& eta) {
     if (!db_select_on(m, "SELECT o.order_id, o.status, o.total, o.created_at, IFNULL(p.method, ''), "
-                         "IFNULL(p.status, ''), IFNULL(p.paid_at, '') "
+                         "IFNULL(p.status, ''), IFNULL(p.paid_at, ''), IFNULL(p.pay_detail, ''), IFNULL(p.txn_ref, '') "
                          "FROM orders o LEFT JOIN payments p ON p.order_id = o.order_id "
                          "WHERE o.order_id = ? AND o.user_id = ?", {id, to_string(user_id)}, head))
         return false;
@@ -1662,7 +1815,7 @@ static string timeline_html(const string& status, const vector<vector<string>>& 
 // GET /order?id=N
 // order page ke upar ka message: /order?id=N&ok=cancelled (text hamara fixed)
 static string order_notice(const Request& req) {
-    if (param(req, "ok") == "cancelled") return flash_text("ok", "Your order was cancelled. Its items went back to stock.");
+    if (param(req, "ok") == "cancelled") return flash_text("ok", "Your order was cancelled. Its items went back to stock. If you paid online, the money is refunded.");
     return "";
 }
 
@@ -1684,13 +1837,11 @@ static int order_page(SOCKET client, const Request& req) {
     }
     if (!ok) return error_page(client, req, 500, "Database error");
     if (head.empty()) return error_page(client, req, 404, "Order not found");
-    if (!cols_ok(head, 7) || !cols_ok(items, 4) || !cols_ok(hist, 3)) return error_page(client, req, 500, "Database error");
+    if (!cols_ok(head, 9) || !cols_ok(items, 4) || !cols_ok(hist, 3)) return error_page(client, req, 500, "Database error");
 
     vector<string>& o = head[0];
-    // payment: "COD" + status ki goli (PENDING peeli, PAID hari ...); paise na mile to "-"
-    string pay = o[4].empty() ? "-" : render("order_payment", {{"method", o[4]}, {"status", o[5]},
-                                                               {"status_class", status_class(o[5])},
-                                                               {"paid", o[6].empty() ? "" : ", paid " + o[6]}});
+    // payment: tarika + detail + status ki goli (PENDING peeli, PAID hari, REFUNDED ...); payment row na ho to "-"
+    string pay = payment_html(o[4], o[7], o[5], o[6], o[8]);
     string body;
     for (auto& r : items)       // price = jo order ke waqt thi (order_items me), products ki aaj ki nahi
         body += render("order_item_row", {{"id", r[0]}, {"name", r[1]}, {"qty", r[2]}, {"price", rupees_text(r[3])},
@@ -1828,8 +1979,8 @@ static const AdminMsg ADMIN_OK[] = {
     {"order_packed", "Order marked as packed."},
     {"order_shipped", "Order marked as shipped."},
     {"order_ofd", "Order marked as out for delivery."},
-    {"order_delivered", "Order delivered. The payment is now PAID."},
-    {"order_cancelled", "Order cancelled. Its items were added back to stock."},
+    {"order_delivered", "Order delivered. A Cash on Delivery payment is now PAID."},
+    {"order_cancelled", "Order cancelled. Its items were added back to stock; an online payment is REFUNDED."},
     {"role_changed", "Role changed. It applies from that user's next request."},
     {"session_ended", "Session ended. That user is logged out."},
     {"sessions_ended", "All active sessions of that user were ended."}};
@@ -2391,7 +2542,8 @@ static int admin_order_page(SOCKET client, const Request& req) {
     MYSQL* m = get_conn(cid);               // teeno queries ek connection par
     if (m == nullptr) return error_page(client, req, 500, "Database error");
     bool ok = db_select_on(m, "SELECT o.order_id, o.status, o.total, o.created_at, u.name, u.email, IFNULL(p.method, ''), "
-                              "IFNULL(p.status, ''), IFNULL(p.paid_at, '') FROM orders o JOIN users u ON u.user_id = o.user_id "
+                              "IFNULL(p.status, ''), IFNULL(p.paid_at, ''), IFNULL(p.pay_detail, ''), IFNULL(p.txn_ref, '') "
+                              "FROM orders o JOIN users u ON u.user_id = o.user_id "
                               "LEFT JOIN payments p ON p.order_id = o.order_id WHERE o.order_id = ?", {id}, head) &&
               db_select_on(m, "SELECT p.product_id, p.name, oi.quantity, oi.price FROM order_items oi "
                               "JOIN products p ON p.product_id = oi.product_id WHERE oi.order_id = ? ORDER BY p.name", {id}, items) &&
@@ -2400,7 +2552,7 @@ static int admin_order_page(SOCKET client, const Request& req) {
     put_conn(cid);
     if (!ok) return error_page(client, req, 500, "Database error");
     if (head.empty()) return admin_problem(client, req, 404, "Order", "Order not found.");
-    if (!cols_ok(head, 9) || !cols_ok(items, 4) || !cols_ok(hist, 3)) return error_page(client, req, 500, "Database error");
+    if (!cols_ok(head, 11) || !cols_ok(items, 4) || !cols_ok(hist, 3)) return error_page(client, req, 500, "Database error");
 
     vector<string>& o = head[0];
     string rows;
@@ -2413,8 +2565,7 @@ static int admin_order_page(SOCKET client, const Request& req) {
     for (auto& h : hist)
         history += render("admin_history_row", {{"time", h[1]}, {"status_class", status_class(h[0])}, {"label", status_label(h[0])}, {"by", h[2]}});
     if (hist.empty()) history = render("admin_none_row", {{"message", "No history yet (order placed before tracking was added)."}});
-    string pay = o[6].empty() ? "-" : render("order_payment", {{"method", o[6]}, {"status", o[7]}, {"status_class", status_class(o[7])},
-                                                               {"paid", o[8].empty() ? "" : ", paid " + o[8]}});
+    string pay = payment_html(o[6], o[9], o[7], o[8], o[10]);
 
     // buttons: har possible "to" ke liye, agar db.cpp ka order_transition_ok haan kahe (wahi niyam jo server lagata hai)
     struct Next {

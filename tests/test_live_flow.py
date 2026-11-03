@@ -1,6 +1,8 @@
 # Full shopping flow against a running server (local or deployed), 4 users at the same time.
 # Each user: signup -> login -> add address -> add to cart -> checkout -> order page -> orders list -> logout.
 # All 4 buy the SAME product in parallel: stock must drop by exactly 4 (row locks in the checkout transaction).
+# Each pays a different way (COD, UPI, Card, Net Banking). Also: bad payment details are rejected, a declined test card
+# rolls the whole checkout back (cart stays), and cancelling an online-paid order makes the payment REFUNDED.
 # Usage: py tests/test_live_flow.py https://serversync-wo8b.onrender.com [run-tag]
 import http.cookiejar, re, sys, threading, time, urllib.error, urllib.parse, urllib.request
 
@@ -10,6 +12,14 @@ PASSWORD = "Kq7#Tiger$Moon"
 USERS = ["Shoyam Bishnoi", "Sneha Negi", "Aaradhna Jaiswal", "Ashutosh"]
 SHARED = 9           # TWS Wireless Earbuds: everybody buys one
 EXTRA = [2, 30, 41, 51]   # plus one different product each
+# per user: payment form fields, text the order page must show, expected payment status
+PAYMENTS = [
+    ({"pay_method": "COD"}, "Cash on Delivery", "PENDING"),
+    ({"pay_method": "UPI", "upi_id": "sneha.negi@okaxis"}, "UPI (sneha.negi@okaxis)", "PAID"),
+    ({"pay_method": "CARD", "card_number": "4111 1111 1111 1111", "card_name": "Aaradhna Jaiswal", "card_expiry": "12/30",
+      "card_cvv": "123"}, "Card (VISA **** 1111)", "PAID"),
+    ({"pay_method": "NETBANKING", "bank": "HDFC"}, "Net Banking (HDFC Bank)", "PAID"),
+]
 
 results, lock = [], threading.Lock()
 
@@ -70,15 +80,32 @@ def flow(i, name, barrier, out):
     aid = re.search(r'name="address_id" value="(\d+)"', body)
     check(name, "checkout page with address", s == 200 and aid is not None, str(s))
 
+    addr = aid.group(1) if aid else ""
+    pay, shown, pstatus = PAYMENTS[i]
+    if pay["pay_method"] == "UPI":
+        s, _, body = c.req("POST", "/checkout", {"address_id": addr, "pay_method": "UPI", "upi_id": "not-a-upi-id"})
+        check(name, "bad UPI ID rejected (400, form kept)", s == 400 and "valid UPI ID" in body and 'value="UPI" checked' in body, str(s))
+    if pay["pay_method"] == "CARD":
+        bad = dict(pay, card_number="4111 1111 1111 1112")
+        s, _, body = c.req("POST", "/checkout", dict(bad, address_id=addr))
+        check(name, "wrong card number rejected (Luhn)", s == 400 and "card number is not valid" in body, str(s))
+        s, _, body = c.req("POST", "/checkout", dict(pay, card_expiry="01/20", address_id=addr))
+        check(name, "expired card rejected", s == 400 and "expiry" in body, str(s))
+        s, _, body = c.req("POST", "/checkout", dict(pay, card_number="4000 0000 0000 0002", address_id=addr))
+        check(name, "declined card -> ROLLBACK, no order", s == 409 and "declined" in body, str(s))
+        s, _, body = c.req("GET", "/cart")
+        check(name, "cart still full after decline", s == 200 and body.count('name="product_id"') >= 2, str(s))
+
     barrier.wait()      # sab ek saath "Place order" dabate hain
-    s, loc, _ = c.req("POST", "/checkout", {"address_id": aid.group(1) if aid else ""})
+    s, loc, _ = c.req("POST", "/checkout", dict(pay, address_id=addr))
     m = re.search(r"/order\?id=(\d+)", loc)
     check(name, "place order (parallel)", s == 302 and m is not None, f"{s} {loc}")
     oid = m.group(1) if m else "0"
     out[name] = (c, oid)
 
     s, _, body = c.req("GET", f"/order?id={oid}")
-    check(name, f"order #{oid} page", s == 200 and "COD" in body, str(s))
+    check(name, f"order #{oid} paid by {pay['pay_method']}: {pstatus}", s == 200 and shown in body and f">{pstatus}<" in body
+          and (pstatus == "PENDING" or ", Txn TXN" in body), str(s))
     s, _, body = c.req("GET", "/orders")
     check(name, "order in My Orders", s == 200 and f"id={oid}" in body, str(s))
     s, _, body = c.req("GET", "/cart")
@@ -106,6 +133,7 @@ def main():
         s, loc, _ = c.req("POST", "/order/cancel", {"order_id": oid})
         s2, _, body = c.req("GET", f"/order?id={oid}")
         check("Ashutosh", f"cancel order #{oid}", s == 302 and "Cancelled" in body, f"{s} {loc}")
+        check("Ashutosh", "online payment REFUNDED after cancel", ">REFUNDED<" in body, "")
 
     for n, (c, _) in out.items():
         s, loc, _ = c.req("POST", "/logout", {})

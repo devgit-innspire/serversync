@@ -219,6 +219,7 @@ table.metrics td:first-child { font-weight: 600; width: 50%; }
 .pill-placed, .pill-pending { background: #fef9c3; color: #854d0e; }
 .pill-delivered, .pill-paid, .pill-active { background: #dcfce7; color: var(--ok-text); }
 .pill-cancelled, .pill-failed, .pill-expired { background: #fee2e2; color: var(--err-text); }
+.pill-refunded { background: #ede9fe; color: #5b21b6; }
 .pill-loggedout { background: #e5e7eb; color: var(--muted-text); }
 .pill-packed { background: #e0f2fe; color: #075985; }
 .pill-shipped { background: #e0e7ff; color: #3730a3; }
@@ -540,3 +541,20 @@ html.js .pw-hint { display: none; }
 .pw-rules.server li.bad { color: var(--err-text); }
 .pw-rules.server li.bad .pw-mark { color: var(--err); }
 .modal-box .pw-hint { margin: 0; }
+
+/* ---------- checkout: payment method ---------- */
+.pay-note { margin: 0 0 .75rem; font-size: .88rem; }
+.pay-opt { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; padding: .6rem .75rem; border: 1px solid var(--line, #e5e7eb); border-radius: 10px; margin-top: .5rem; cursor: pointer; }
+.pay-opt .muted { font-size: .85rem; }
+.pay-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; padding: .6rem .75rem 0; }
+.pay-fields label { display: flex; flex-direction: column; gap: .25rem; font-size: .9rem; }
+.pay-fields .wide { grid-column: 1 / -1; }
+@media (max-width: 560px) { .pay-fields { grid-template-columns: 1fr; } }
+/* Sirf chune hue tarike ke fields dikhao. Purane browser (:has nahi) me sab fields dikhte hain, form phir bhi chalta hai */
+@supports selector(:has(a)) {
+  .pay .pay-fields { display: none; }
+  .pay:has(input[value="UPI"]:checked) .pay-upi,
+  .pay:has(input[value="CARD"]:checked) .pay-card,
+  .pay:has(input[value="NETBANKING"]:checked) .pay-netbanking { display: grid; }
+  .pay-opt:has(input:checked) { border-color: var(--hero-from); background: #eef2ff; }
+}
